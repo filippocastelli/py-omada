@@ -1,6 +1,4 @@
 # pyomada
-A python API for TP-Link Omada
-
 This is a (very rudimentary) Python API for TP-Link Omada.
 
 TP-Link Omada at this day has no official API documentation, so a bit of reverse engineering has to be done.

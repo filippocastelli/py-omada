@@ -3,6 +3,7 @@ from typing import List, Union
 from datetime import datetime
 import logging
 import json
+import getpass
 
 import requests
 import yaml
@@ -20,7 +21,7 @@ class OmadaAPI:
 
     def __init__(self,
                  config_fpath: Path = Path("config.yml"),
-                 baseurl: str = None,
+                 baseurl: str = "https://omadacontroller.local:8043",
                  site: str = "Default",
                  verify: bool = True,
                  debug: bool = True):
@@ -170,23 +171,17 @@ class OmadaAPI:
 
         return json.dumps(obj, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
-    def login_prompt(self) -> (str, str):
+    @staticmethod
+    def login_prompt() -> (str, str):
         """
         prompt the user for login credentials
         :return: the username and password
         """
 
-        login_username = input("Omada login: \n")
-        login_password = input("password: \n")
+        login_username = input("Omada login:")
+        login_password = getpass.getpass(prompt="password:")
 
-        endpoint_params = {
-            "username": "login_username",
-            "password": "login_password"
-        }
-        result = self.makeApiCall(url="/login",
-                                  endpoint_params=endpoint_params)
-        print(result)
-        return None, None
+        return login_username, login_password
 
     def login(self):
         """

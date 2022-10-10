@@ -20,6 +20,7 @@ def main():
                         help="Disable radios")
     parser.add_argument("--no-leds",
                         dest="noleds",
+                        action="store_true",
                         help="ignore leds")
 
     args = parser.parse_args()

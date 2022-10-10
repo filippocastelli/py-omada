@@ -18,6 +18,9 @@ def main():
     parser.add_argument("-d", "--disable",
                         action="store_true",
                         help="Disable radios")
+    parser.add_argument("--no-leds",
+                        dest="noleds",
+                        help="ignore leds")
 
     args = parser.parse_args()
 
@@ -46,9 +49,11 @@ def main():
         logging.info(f"{enabling_str} radios on {device_name} ({mac_address})")
         api.set_eap_2g_radio(eap_mac=mac_address,
                              radio_status=radio_status)
-        logging.info(f"{enabling_str} led on {device_name} ({mac_address})")
-        api.set_eap_led_status(eap_mac=mac_address,
-                               led_status=led_status)
+        
+        if not args.noleds:
+            logging.info(f"{enabling_str} led on {device_name} ({mac_address})")
+            api.set_eap_led_status(eap_mac=mac_address,
+                                led_status=led_status)
 
 
 if __name__ == "__main__":

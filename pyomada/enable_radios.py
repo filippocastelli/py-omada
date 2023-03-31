@@ -2,7 +2,7 @@ from pathlib import Path
 from argparse import ArgumentParser
 import logging
 
-from pyomada import OmadaAPI
+from pyomada.pyomada import OmadaAPI
 
 
 def main():

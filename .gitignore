@@ -1,2 +1,4 @@
 config.yml
 *.pyc
+*.egg-info
+pyomada/__pycache__

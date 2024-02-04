@@ -162,7 +162,7 @@ class OmadaAPI:
             return data
 
     @staticmethod
-    def safe_json_serialize(obj, indent=4) -> str:
+    def safe_json_serialize(obj) -> str:
         """
         serialize an object to json, but don't fail if it can't be serialized
         :param obj: the object to serialize

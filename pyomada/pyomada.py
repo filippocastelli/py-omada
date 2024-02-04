@@ -55,7 +55,7 @@ class OmadaAPI:
             requests.packages.urllib3.disable_warnings()
 
     @staticmethod
-    def read_yml(yml_fpath: Path):
+    def read_yml(yml_fpath: Path) -> dict:
         """read a yml config file"""
         with yml_fpath.open(mode="r") as infile:
             cfg = yaml.load(infile, Loader=yaml.FullLoader)
@@ -65,7 +65,8 @@ class OmadaAPI:
     def get_timestamp() -> int:
         return int(datetime.utcnow().timestamp() * 1000)
 
-    def path_to_url(self, path: str):
+    def path_to_url(self, path: str) -> str:
+        """convert an api path to a complete url"""
         return self.baseurl + self.base_api_path + path
 
     def makeApiCall(self,
@@ -78,7 +79,7 @@ class OmadaAPI:
                     include_token: bool = True,
                     bare_url: str = False,
                     serialize_result: bool = True,
-                    ) -> Union[dict, requests.Response]:
+                    ) -> dict | requests.Response:
         """
         make an API call to the Omada API
         :param serialize_result: whether to serialize the result
@@ -161,7 +162,7 @@ class OmadaAPI:
             return data
 
     @staticmethod
-    def safe_json_serialize(obj, indent=4):
+    def safe_json_serialize(obj, indent=4) -> str:
         """
         serialize an object to json, but don't fail if it can't be serialized
         :param obj: the object to serialize
@@ -183,7 +184,7 @@ class OmadaAPI:
 
         return login_username, login_password
 
-    def login(self):
+    def login(self) -> str:
         """
         login to the Omada API
         :return: the token
@@ -201,7 +202,7 @@ class OmadaAPI:
         self.token = result["result"]["token"]
         return self.token
 
-    def logout(self):
+    def logout(self) -> None:
         """
         logout from the Omada API
         :return:
@@ -218,7 +219,7 @@ class OmadaAPI:
         else:
             logging.warning(f"logout failed with status code {status_code}")
 
-    def is_logged(self):
+    def is_logged(self) -> bool:
         """
         check if the user is logged in
         :return: True if logged in, False otherwise
@@ -328,7 +329,7 @@ class OmadaAPI:
     def set_eap_2g_radio(self,
                          eap_mac: str,
                          radio_status: bool,
-                         site_key: str = None):
+                         site_key: str = None) -> dict:
         """
         enable or disable 2G radio for an EAP
         :param site_key: the site key
@@ -350,7 +351,7 @@ class OmadaAPI:
     def set_eap_led_status(self,
                            eap_mac: str,
                            led_status: int,
-                           site_key: str = None):
+                           site_key: str = None) -> dict:
         """
         set led status for an EAP
         :param site_key: the site key
@@ -375,7 +376,7 @@ class OmadaAPI:
     def set_eap_5g_radio(self,
                          eap_mac: str,
                          radio_status: bool,
-                         site_key: str = None):
+                         site_key: str = None) -> dict:
         """
         enable or disable 5G radio for an EAP
         :param site_key: the site key

@@ -9,6 +9,9 @@ import requests
 import yaml
 import pandas as pd
 
+from requests.cookies import RequestsCookieJar
+import urllib3
+
 # show all logs
 logging.basicConfig(level=logging.DEBUG)
 
@@ -29,6 +32,7 @@ class OmadaAPI:
         self.config_fpath = Path(config_fpath)
         self.token = None
         self.base_api_path = "/api/v2"
+        self.omadacid: str | None = None
 
         self.debug = debug
 
@@ -48,14 +52,14 @@ class OmadaAPI:
             self.login_username, self.login_password = self.login_prompt()
 
         self.session = requests.Session()
+        self.session.cookies = RequestsCookieJar()
         self.session.verify = self.verify
+        if not self.session.verify:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        # if verification is disabled, disable the warning
-        if not self.verify:
-            requests.packages.urllib3.disable_warnings()
 
     @staticmethod
-    def read_yml(yml_fpath: Path):
+    def read_yml(yml_fpath: Path) -> dict:
         """read a yml config file"""
         with yml_fpath.open(mode="r") as infile:
             cfg = yaml.load(infile, Loader=yaml.FullLoader)
@@ -65,8 +69,13 @@ class OmadaAPI:
     def get_timestamp() -> int:
         return int(datetime.utcnow().timestamp() * 1000)
 
-    def path_to_url(self, path: str):
-        return self.baseurl + self.base_api_path + path
+    def path_to_url(self, path: str, omadacid: str | None = None) -> str:
+        """convert an api path to a complete url"""
+        if omadacid is not None:
+            omadacid_str = f"/{omadacid}"
+        else:
+            omadacid_str = ""
+        return self.baseurl + omadacid_str + self.base_api_path + path
 
     def makeApiCall(self,
                     url: str = None,
@@ -76,9 +85,10 @@ class OmadaAPI:
                     json: dict = None,
                     debug: bool = False,
                     include_token: bool = True,
+                    include_omadacid: bool = True,
                     bare_url: str = False,
                     serialize_result: bool = True,
-                    ) -> Union[dict, requests.Response]:
+                    ) -> dict | requests.Response:
         """
         make an API call to the Omada API
         :param serialize_result: whether to serialize the result
@@ -89,6 +99,7 @@ class OmadaAPI:
         :param endpoint_params: the parameters to send to the endpoint
         :param debug: print the response
         :param include_token: include the token in the request
+        :param include_omadacid: include the omadacid in the request
         :param bare_url: don't include the base url
         :return: the response
         """
@@ -97,14 +108,17 @@ class OmadaAPI:
             endpoint_params = {}
 
         if not bare_url:
-            url = self.path_to_url(url)
+            if include_omadacid and (self.omadacid is None):
+                raise ValueError("omadacid is None, but include_omadacid is True")
+            omadacid = self.omadacid if include_omadacid else None
+            url = self.path_to_url(url, omadacid=omadacid)
 
         if include_token:
             endpoint_params.update({
                 "token": self.token,
                 "_": self.get_timestamp()
             })
-
+        
         # print a request debug summary
         if self.debug:
             print(" -- REQUEST DEBUG SUMMARY --")
@@ -159,9 +173,14 @@ class OmadaAPI:
                 print(f"response: {str(data)}")
                 print("\n")
             return data
+        
+    
+    def get_current_site_id(self):
+        sites = self.current_user["privilege"]["sites"]
+        return next(site["key"] for site in sites if site["name"] == self.site)
 
     @staticmethod
-    def safe_json_serialize(obj, indent=4):
+    def safe_json_serialize(obj) -> str:
         """
         serialize an object to json, but don't fail if it can't be serialized
         :param obj: the object to serialize
@@ -183,7 +202,7 @@ class OmadaAPI:
 
         return login_username, login_password
 
-    def login(self):
+    def login(self) -> str:
         """
         login to the Omada API
         :return: the token
@@ -193,21 +212,39 @@ class OmadaAPI:
             "username": self.login_username,
             "password": self.login_password
         }
+
+        api_info_dict = self._get_api_info()
+        self.omadacid = api_info_dict["omadacId"]
+
         result = self.makeApiCall(url="/login",
                                   json=json_dict,
                                   mode="POST",
-                                  include_token=False,
                                   debug=self.debug)
         self.token = result["result"]["token"]
+        self.session.headers.update({"Csrf-Token": self.token})
+        self.current_user = self.get_current_user()
         return self.token
 
-    def logout(self):
+    def _get_api_info(self) -> dict:
+        info_url = self.baseurl + "/api/info"
+        resp = self.makeApiCall(
+            url=info_url,
+            bare_url=True,
+            mode="GET",
+            serialize_result=True,
+            debug=self.debug,
+        )
+        if resp["errorCode"] == 0:
+            return resp["result"] if "result" in resp else None
+        
+
+    def logout(self) -> None:
         """
         logout from the Omada API
         :return:
         """
 
-        result = self.makeApiCall(url="/logout",
+        result = self.n(url="/logout",
                                   mode="POST",
                                   include_token=False,
                                   serialize_result=False,
@@ -218,7 +255,7 @@ class OmadaAPI:
         else:
             logging.warning(f"logout failed with status code {status_code}")
 
-    def is_logged(self):
+    def is_logged(self) -> bool:
         """
         check if the user is logged in
         :return: True if logged in, False otherwise
@@ -247,6 +284,18 @@ class OmadaAPI:
                                   debug=self.debug)
         return pd.DataFrame(result["result"]["data"])
 
+    def get_current_user(self) -> dict:
+        """
+        get the current user
+        :return: the current user
+        """
+
+        result = self.makeApiCall(url="/users/current",
+                                  mode="GET",
+                                  serialize_result=True,
+                                  debug=self.debug)
+        return result["result"]
+    
     # get the list of sites
     def get_sites(self) -> pd.DataFrame:
         """
@@ -274,30 +323,31 @@ class OmadaAPI:
         return result["result"]
 
     # get all settings of a site
-    def get_site_settings(self, site_key: str) -> pd.DataFrame:
+    def get_site_settings(self, site_id: str) -> pd.DataFrame:
         """
         get all settings of a site
-        :param site_key: the site key
+        :param site_id: the site id
         :return: a pandas dataframe of the settings
         """
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/setting",
+        result = self.makeApiCall(url=f"/sites/{site_id}/setting",
                                   mode="GET",
                                   serialize_result=True,
                                   debug=self.debug)
         return pd.DataFrame(result["result"])
 
     # get the list of devices for a given site
-    def get_devices(self, site_key: str = None) -> pd.DataFrame:
+    def get_devices(self, site_id: str = None) -> pd.DataFrame:
         """
         get the list of devices for a given site
-        :param site_key: the site key
+        :param site_id: the site key
         :return: a pandas dataframe of the devices
         """
-        if site_key is None:
-            site_key = self.site
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/devices",
+        if site_id is None:
+            site_id = self.get_current_site_id()
+
+        result = self.makeApiCall(url=f"/sites/{site_id}/devices",
                                   mode="GET",
                                   serialize_result=True,
                                   debug=self.debug)
@@ -306,18 +356,18 @@ class OmadaAPI:
     # get site eaps
     def get_eap_data(self,
                      eap_mac: str,
-                     site_key: str = None) -> pd.Series:
+                     site_id: str = None) -> pd.Series:
         """
         get site eaps
-        :param site_key: the site key
+        :param site_id: the site key
         :param eap_mac: the eap mac
         :return: a pandas dataframe of the site eaps
         """
 
-        if site_key is None:
-            site_key = self.site
+        if site_id is None:
+            site_id = self.get_current_site_id()
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/eaps/{eap_mac}",
+        result = self.makeApiCall(url=f"/sites/{site_id}/eaps/{eap_mac}",
                                   mode="GET",
                                   serialize_result=True,
                                   debug=self.debug)
@@ -328,18 +378,18 @@ class OmadaAPI:
     def set_eap_2g_radio(self,
                          eap_mac: str,
                          radio_status: bool,
-                         site_key: str = None):
+                         site_id: str = None) -> dict:
         """
         enable or disable 2G radio for an EAP
-        :param site_key: the site key
+        :param site_id: the site key
         :param eap_mac: the eap mac
         :param radio_status: the radio status, True for enabled, False for disabled
         :return: the result of the api call
         """
-        if site_key is None:
-            site_key = self.site
+        if site_id is None:
+            site_id = self.get_current_site_id()
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/eaps/{eap_mac}",
+        result = self.makeApiCall(url=f"/sites/{site_id}/eaps/{eap_mac}",
                                   mode="PATCH",
                                   json={"radioSetting2g": {"radioEnable": radio_status}},
                                   serialize_result=True,
@@ -350,19 +400,19 @@ class OmadaAPI:
     def set_eap_led_status(self,
                            eap_mac: str,
                            led_status: int,
-                           site_key: str = None):
+                           site_id: str = None) -> dict:
         """
         set led status for an EAP
-        :param site_key: the site key
+        :param site_id: the site key
         :param eap_mac: the eap mac
         :param led_status: the led status, 0 for off, 1 for on, 2 for site default
         :return: the result of the api call
         """
 
-        if site_key is None:
-            site_key = self.site
+        if site_id is None:
+            site_id = self.get_current_site_id()
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/eaps/{eap_mac}",
+        result = self.makeApiCall(url=f"/sites/{site_id}/eaps/{eap_mac}",
                                   mode="PATCH",
                                   json={"ledSetting": led_status},
                                   serialize_result=True,
@@ -375,18 +425,18 @@ class OmadaAPI:
     def set_eap_5g_radio(self,
                          eap_mac: str,
                          radio_status: bool,
-                         site_key: str = None):
+                         site_id: str = None) -> dict:
         """
         enable or disable 5G radio for an EAP
-        :param site_key: the site key
+        :param site_id: the site key
         :param eap_mac: the eap mac
         :param radio_status: the radio status, True for enabled, False for disabled
         :return: the result of the api call
         """
-        if site_key is None:
-            site_key = self.site
+        if site_id is None:
+            site_id = self.get_current_site_id()
 
-        result = self.makeApiCall(url=f"/sites/{site_key}/eaps/{eap_mac}",
+        result = self.makeApiCall(url=f"/sites/{site_id}/eaps/{eap_mac}",
                                   mode="PATCH",
                                   json={"radioSetting5g": {"radioEnable": radio_status}},
                                   serialize_result=True,
@@ -403,11 +453,11 @@ if __name__ == "__main__":
     admins = omada.get_admins()
     sites = omada.get_sites()
     scenarios = omada.get_scenarios()
-    settings = omada.get_site_settings(site_key="Default")
-    devices = omada.get_devices(site_key="Default")
-    eap_data = omada.get_eap_data(site_key="Default", eap_mac=devices.iloc[0]["mac"])
+    settings = omada.get_site_settings(site_id="Default")
+    devices = omada.get_devices(site_id="Default")
+    eap_data = omada.get_eap_data(site_id="Default", eap_mac=devices.iloc[0]["mac"])
     eap_macs = list(devices["mac"])
 
     for mac in eap_macs:
-        omada.set_eap_led_status(site_key="Default", eap_mac=mac, led_status=1)
-        omada.set_eap_2g_radio(site_key="Default", eap_mac=mac, radio_status=True)
+        omada.set_eap_led_status(site_id="Default", eap_mac=mac, led_status=1)
+        omada.set_eap_2g_radio(site_id="Default", eap_mac=mac, radio_status=True)
